@@ -58,7 +58,11 @@ export class AccountingEngine {
     console.log('AccountingEngine.seedAccounts called - now managed via Dexie settings');
   }
 
-  static async generateSalesEntry(sale: Sale, items: InvoiceItem[]): Promise<AccountingEntry> {
+  static async generateSalesEntry(
+    sale: Sale,
+    items: InvoiceItem[],
+    costResult?: { totalCost: number; itemCosts?: Record<string, number> }
+  ): Promise<AccountingEntry> {
     const cashAcc = await this.getCoreAccount('CASH');
     const arAcc = await this.getCoreAccount('RECEIVABLE');
     const revenueAcc = await this.getCoreAccount('SALES_REVENUE');
@@ -80,8 +84,11 @@ export class AccountingEngine {
     }
     lines.push(await this.createLine(entryId, revenueAcc, 0, baseAmount));
 
-    // 2. COGS Impact
-    const totalCalculatedCost = await this.calculateTotalCOGS(items);
+    // 2. COGS Impact (Single Source of Truth: FIFO costResult if available, otherwise fallback)
+    const totalCalculatedCost = costResult?.totalCost !== undefined
+      ? costResult.totalCost
+      : await this.calculateTotalCOGS(items);
+
     const { baseAmount: baseCost } = await CurrencyService.convertToBase(totalCalculatedCost, currencyCode, sale.date);
     
     if (baseCost > 0) {
@@ -149,7 +156,11 @@ export class AccountingEngine {
     };
   }
 
-  static async generateReturnEntry(sale: Sale, items: InvoiceItem[]): Promise<AccountingEntry> {
+  static async generateReturnEntry(
+    sale: Sale,
+    items: InvoiceItem[],
+    costResult?: { totalCost: number; itemCosts?: Record<string, number> }
+  ): Promise<AccountingEntry> {
     const cashAcc = await this.getCoreAccount('CASH');
     const arAcc = await this.getCoreAccount('RECEIVABLE');
     const revenueAcc = await this.getCoreAccount('SALES_REVENUE');
@@ -170,8 +181,11 @@ export class AccountingEngine {
       lines.push(await this.createLine(entryId, arAcc, 0, baseAmount));
     }
 
-    // Reverse COGS: Debit Inventory, Credit COGS
-    const totalCalculatedCost = await this.calculateTotalCOGS(items);
+    // Reverse COGS: Debit Inventory, Credit COGS (Single Source of Truth: FIFO costResult if available)
+    const totalCalculatedCost = costResult?.totalCost !== undefined
+      ? costResult.totalCost
+      : await this.calculateTotalCOGS(items);
+
     const { baseAmount: baseCost } = await CurrencyService.convertToBase(totalCalculatedCost, currencyCode, sale.date);
     
     if (baseCost > 0) {
@@ -298,17 +312,21 @@ export class AccountingEngine {
       
       // Fallback to product default cost price if batch cost is missing
       if (unitCost === 0) {
-        try {
-          const product = await db.products.get(item.product_id);
-          if (product) {
-            unitCost = product.CostPrice || 0;
+        const prodId = (item as any).productId || item.product_id;
+        if (prodId) {
+          try {
+            const product = await db.products.get(prodId);
+            if (product) {
+              unitCost = product.CostPrice || (product as any).costPrice || 0;
+            }
+          } catch (e) {
+            console.warn("Error fetching product from Dexie:", e);
           }
-        } catch (e) {
-          console.warn("Error fetching product from Dexie:", e);
         }
       }
       
-      totalCOGS += (item.qty || 0) * unitCost;
+      const qty = item.qty || (item as any).quantity || 0;
+      totalCOGS += qty * unitCost;
     }
     return totalCOGS;
   }
@@ -331,7 +349,7 @@ export class AccountingEngine {
    */
   static async postInvoice(
     invoice: Sale | Purchase | UnifiedInvoice,
-    _costResult?: { totalCost: number }
+    costResult?: { totalCost: number; itemCosts?: Record<string, number> }
   ): Promise<void> {
     
     const type = ('type' in invoice && invoice.type) ? invoice.type : (('customerId' in invoice && invoice.customerId) ? 'SALE' : 'PURCHASE');
@@ -342,9 +360,9 @@ export class AccountingEngine {
     if (type === 'SALE') {
       const saleObj = invoice as Sale;
       if (isReturn) {
-        entry = await this.generateReturnEntry(saleObj, saleObj.items || []);
+        entry = await this.generateReturnEntry(saleObj, saleObj.items || [], costResult);
       } else {
-        entry = await this.generateSalesEntry(saleObj, saleObj.items || []);
+        entry = await this.generateSalesEntry(saleObj, saleObj.items || [], costResult);
       }
     } else {
       const purchaseObj = invoice as Purchase;

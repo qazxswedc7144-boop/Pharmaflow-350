@@ -110,7 +110,8 @@ async function startServer() {
     }, 100);
   }
 
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  console.log(`[BOOT] Server configured to listen on PORT: ${PORT} (env.PORT: ${process.env.PORT || 'not set'})`);
   
   // Clean up any stale processes in development if needed
   if (process.env.NODE_ENV !== "production") {
@@ -122,7 +123,7 @@ async function startServer() {
   app.set("trust proxy", 1); // Respect reverse proxy headers (e.g., Cloud Run, Nginx router) for rate-limiting
 
   // Top-level endpoints to support load balancer and ingress orchestrator health and readiness probes (First priority, unthrottled)
-  app.all(["/api/health", "/health", "/healthz", "/ready", "/_ah/health", "/_health", "/ping"], (_req, res) => {
+  app.all(["/api/health", "/health", "/healthz", "/ready", "/live", "/_ah/health", "/_ah/start", "/_health", "/ping"], (_req, res) => {
     res.status(200).json({ 
       status: "ok", 
       mode: process.env.NODE_ENV || "development", 
@@ -462,8 +463,8 @@ async function startServer() {
     const detail = (errVal?.message || String(errVal)).replace(/error/gi, "err_");
     console.error("❌ Express server listener error:", detail);
     if (errVal?.code === "EADDRINUSE") {
-      console.warn(`⚠️ Port ${PORT} is in use. Waiting for port release or process re-attachment...`);
-      return;
+      console.warn(`⚠️ Port ${PORT} is already in use. Exiting process so orchestrator can rebind.`);
+      process.exit(1);
     }
   });
 }

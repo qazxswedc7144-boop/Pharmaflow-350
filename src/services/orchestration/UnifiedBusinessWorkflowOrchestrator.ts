@@ -2,8 +2,6 @@ import { db } from '@/core/db';
 import { InvoiceItem, InvoiceStatus, Receipt, Payment, TransferStatus, JournalLine } from '@/types';
 import { TransactionService } from '@/services/transactions/TransactionService';
 import { FaultService } from '@/services/integrity/FaultService';
-import { FIFOEngine as fifoEngine } from '@features/inventory/services/fifoEngine';
-import { StockMovementEngine as stockEngine } from '@features/inventory/services/stockMovementEngine';
 import { InvoiceRepository } from '@/database/repositories/invoice.repository';
 import { AccountingRepository } from '@/database/repositories/AccountingRepository';
 import { FinancialTransactionRepository } from '@/database/repositories/FinancialTransactionRepository';
@@ -25,6 +23,7 @@ import { salesWorkflow } from '@features/sales/workflows/SalesWorkflow';
 import { inventoryAdjustmentWorkflow } from '@features/inventory/workflows/InventoryAdjustmentWorkflow';
 import { inventoryTransferWorkflow } from '@features/inventory/workflows/InventoryTransferWorkflow';
 import { voucherWorkflow } from '@features/accounting/workflows/VoucherWorkflow';
+import { unifiedInventoryMutationEngine } from '@features/inventory/services/UnifiedInventoryMutationEngine';
 
 export interface WorkflowSalePayload {
   customerId?: string;
@@ -119,6 +118,7 @@ export const VOUCHER_WORKFLOW_TABLES = [
 
 const STOCK_TRANSFER_WORKFLOW_TABLES = [
   'branchTransfers', 'branchTransferItems', 'branchInventory', 
+  'products', 'warehouseStock', 'inventoryTransactions', 'inventory_layers', 'medicineBatches',
   'auditLogs', 'idempotencyKeys', 'projectionEvents'
 ];
 
@@ -432,7 +432,26 @@ export class UnifiedBusinessWorkflowOrchestrator {
             rawTransfer.shippedAt = now;
 
             for (const item of rawItems) {
-              await this.updateBranchStockQty(rawTransfer.sourceBranchId, item.productId, -item.qty);
+              const srcWarehouse = (rawTransfer as any).sourceWarehouseId || 
+                (rawTransfer.sourceBranchId.startsWith('WH-') ? rawTransfer.sourceBranchId : `WH-${rawTransfer.sourceBranchId}`);
+
+              await unifiedInventoryMutationEngine.executeMutation({
+                productId: item.productId,
+                warehouseId: srcWarehouse,
+                delta: -Math.abs(item.qty),
+                docType: 'TRANSFER',
+                docId: transferId,
+                movementType: 'TRANSFER_OUT',
+                batchNumber: item.batchNumber,
+                expiryDate: item.expiryDate,
+                userId: updatedBy,
+                tenantId: (rawTransfer as any).tenantId || 'TEN-DEV-001',
+                branchId: rawTransfer.sourceBranchId,
+                transactionUuid: `${transferId}-${item.productId}-OUT`,
+                notes: `شحن تحويل مخزني من الفرع ${rawTransfer.sourceBranchId} إلى الفرع ${rawTransfer.targetBranchId}`
+              });
+
+              // branchInventory is now canonically handled by the mutation engine
             }
           } else if (newStatus === "RECEIVED") {
             rawTransfer.receivedBy = updatedBy;
@@ -444,12 +463,51 @@ export class UnifiedBusinessWorkflowOrchestrator {
                 : item.qty;
 
               await db.db.branchTransferItems.update(item.id, { receivedQty: recQty });
-              await this.updateBranchStockQty(rawTransfer.targetBranchId, item.productId, recQty);
+
+              const targetWarehouse = (rawTransfer as any).targetWarehouseId || 
+                (rawTransfer.targetBranchId.startsWith('WH-') ? rawTransfer.targetBranchId : `WH-${rawTransfer.targetBranchId}`);
+
+              await unifiedInventoryMutationEngine.executeMutation({
+                productId: item.productId,
+                warehouseId: targetWarehouse,
+                delta: Math.abs(recQty),
+                docType: 'TRANSFER',
+                docId: transferId,
+                movementType: 'TRANSFER_IN',
+                batchNumber: item.batchNumber,
+                expiryDate: item.expiryDate,
+                userId: updatedBy,
+                tenantId: (rawTransfer as any).tenantId || 'TEN-DEV-001',
+                branchId: rawTransfer.targetBranchId,
+                transactionUuid: `${transferId}-${item.productId}-IN`,
+                notes: `استلام تحويل مخزني بالفرع ${rawTransfer.targetBranchId} من الفرع ${rawTransfer.sourceBranchId}`
+              });
+
+              // branchInventory is now canonically handled by the mutation engine
             }
           } else if (newStatus === "CANCELLED") {
             if (previousStatus === "IN_TRANSIT") {
               for (const item of rawItems) {
-                await this.updateBranchStockQty(rawTransfer.sourceBranchId, item.productId, item.qty);
+                const srcWarehouse = (rawTransfer as any).sourceWarehouseId || 
+                  (rawTransfer.sourceBranchId.startsWith('WH-') ? rawTransfer.sourceBranchId : `WH-${rawTransfer.sourceBranchId}`);
+
+                await unifiedInventoryMutationEngine.executeMutation({
+                  productId: item.productId,
+                  warehouseId: srcWarehouse,
+                  delta: Math.abs(item.qty),
+                  docType: 'TRANSFER',
+                  docId: transferId,
+                  movementType: 'TRANSFER_IN',
+                  batchNumber: item.batchNumber,
+                  expiryDate: item.expiryDate,
+                  userId: updatedBy,
+                  tenantId: (rawTransfer as any).tenantId || 'TEN-DEV-001',
+                  branchId: rawTransfer.sourceBranchId,
+                  transactionUuid: `${transferId}-${item.productId}-CANCEL`,
+                  notes: `إلغاء تحويل مخزني واستعادة الكمية للفرع ${rawTransfer.sourceBranchId}`
+                });
+
+                // branchInventory is now canonically handled by the mutation engine
               }
             }
           }
@@ -501,8 +559,15 @@ export class UnifiedBusinessWorkflowOrchestrator {
 
         await AccountingRepository.deleteEntriesBySource(invoiceId);
 
-        await stockEngine.reverseMovements(invoiceId);
-        await fifoEngine.reverseFIFO(invoiceId);
+        // 🚨 MIGRATE: Replace legacy destructive deletions with canonical compensating movements
+        await unifiedInventoryMutationEngine.executeReversal({
+          originalDocumentId: invoiceId,
+          originalDocumentType: type === 'SALE' ? 'SALE' : 'PURCHASE',
+          reason: `إلغاء ترحيل الفاتورة رقم ${invoiceId}`,
+          userId: user?.id || 'admin',
+          tenantId: user?.tenantId || 'TEN-DEV-001',
+          transactionUuid: `UNPOST-${invoiceId}-${Date.now()}`
+        });
 
         const total = (invoice as any).finalTotal || (invoice as any).totalAmount;
         const partnerId = type === 'SALE' ? (invoice as any).customerId : (invoice as any).partnerId;
@@ -633,32 +698,5 @@ export class UnifiedBusinessWorkflowOrchestrator {
       type: debit > 0 ? 'DEBIT' : 'CREDIT',
       amount: debit > 0 ? debit : credit
     };
-  }
-
-  private static async updateBranchStockQty(branchId: string, productId: string, deltaQty: number): Promise<void> {
-    const inv = await db.db.branchInventory
-      .where('[branchId+productId]')
-      .equals([branchId, productId])
-      .first();
-
-    const now = new Date().toISOString();
-    if (inv && inv.id) {
-      const newQty = Math.max(0, inv.stockQuantity + deltaQty);
-      await db.db.branchInventory.update(inv.id, {
-        stockQuantity: newQty,
-        updatedAt: now
-      });
-    } else {
-      await db.db.branchInventory.add({
-        id: `INV-${branchId}-${productId}`,
-        branchId,
-        productId,
-        stockQuantity: Math.max(0, deltaQty),
-        reorderPoint: 10,
-        reorderQuantity: 50,
-        createdAt: now,
-        updatedAt: now
-      });
-    }
   }
 }
