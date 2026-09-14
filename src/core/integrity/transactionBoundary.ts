@@ -1,17 +1,27 @@
 import { db } from '@/core/db';
 
+export interface TransactionOptions {
+  allowDirectFallback?: boolean;
+}
+
 export class TransactionBoundary {
   /**
    * Runs an operation inside a strict, atomic database transaction boundary.
    * If any step fails, Dexie rolls back all table writes in the transaction.
-   * NO direct execution fallback is permitted for atomic operations.
+   * Direct execution fallback is blocked by default for critical operations unless explicitly allowed.
    */
   public static async executeAtomic<T>(
     tables: string[],
-    operation: () => Promise<T>
+    operation: () => Promise<T>,
+    options?: TransactionOptions
   ): Promise<T> {
-    // If running in headless/Node environment without IndexedDB, execute directly
-    if (typeof indexedDB === 'undefined' || !db || !db.transaction) {
+    const hasTrueTransaction = typeof indexedDB !== 'undefined' && db && typeof (db as any).transaction === 'function';
+
+    // If running in headless/Node environment without IndexedDB or Dexie transaction support
+    if (!hasTrueTransaction) {
+      if (!options?.allowDirectFallback) {
+        throw new Error('[TransactionBoundary] Strict atomic transaction boundary required. No active database transaction context available.');
+      }
       return await operation();
     }
 

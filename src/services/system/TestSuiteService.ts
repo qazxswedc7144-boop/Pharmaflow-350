@@ -9,6 +9,7 @@ import { SyncQueueRepository } from '@features/sync/sync.queue';
 import { SystemOrchestrator } from '@/services/system/SystemOrchestrator';
 import { ProjectionEventBus } from '@/services/system/ProjectionEventBus';
 import { WorkerClient } from '@features/workers/worker.client';
+import { TransactionBoundary } from '@/core/integrity/transactionBoundary';
 
 export class TestSuiteService {
   
@@ -1088,6 +1089,77 @@ export class TestSuiteService {
       assert(false, `FEFO: Near-expiry FEFO ordering failed with error: ${err.message}`);
     }
   }
+
+  static async runTransactionGuardVerificationTests(assert: (condition: boolean, name: string) => void) {
+    console.log('[TransactionGuard] Running Transaction Boundary Runtime Verification Tests...');
+
+    // Test 1: Critical operation fails when true transaction context is missing and allowDirectFallback is false/undefined
+    {
+      const originalIndexedDB = (globalThis as any).indexedDB;
+      try {
+        (globalThis as any).indexedDB = undefined;
+        let threw = false;
+        try {
+          await TransactionBoundary.executeAtomic(['invoices'], async () => {
+            return 'should-fail';
+          });
+        } catch (err: any) {
+          if (err.message && err.message.includes('Strict atomic transaction boundary required')) {
+            threw = true;
+          }
+        }
+        assert(threw, 'Critical operation correctly fails with Strict atomic transaction boundary error when true transaction context is missing');
+      } finally {
+        (globalThis as any).indexedDB = originalIndexedDB;
+      }
+    }
+
+    // Test 2: Non-critical path with allowDirectFallback: true succeeds even when indexedDB is missing
+    {
+      const originalIndexedDB = (globalThis as any).indexedDB;
+      try {
+        (globalThis as any).indexedDB = undefined;
+        let executed = false;
+        const res = await TransactionBoundary.executeAtomic(['invoices'], async () => {
+          executed = true;
+          return 'fallback-success';
+        }, { allowDirectFallback: true });
+
+        assert(executed && res === 'fallback-success', 'Non-critical operation with allowDirectFallback: true executes successfully when transaction context is missing');
+      } finally {
+        (globalThis as any).indexedDB = originalIndexedDB;
+      }
+    }
+
+    // Test 3: Real Dexie transaction commit in test environment (fake-indexeddb)
+    {
+      const testKey = `test-commit-${Date.now()}`;
+      await TransactionBoundary.executeAtomic(['settings'], async () => {
+        await db.settings.put({ key: testKey, value: 'active' });
+      });
+      const stored = await db.settings.get(testKey);
+      assert(stored && stored.value === 'active', 'Real Dexie transaction successfully commits data');
+      await db.settings.delete(testKey);
+    }
+
+    // Test 4: Real Dexie transaction rollback on failure (no partial persistence)
+    {
+      const testKey = `test-rollback-${Date.now()}`;
+      let errorThrown = false;
+      try {
+        await TransactionBoundary.executeAtomic(['settings'], async () => {
+          await db.settings.put({ key: testKey, value: 'should-rollback' });
+          throw new Error('SIMULATED_FAILURE');
+        });
+      } catch (err: any) {
+        if (err.message === 'SIMULATED_FAILURE') {
+          errorThrown = true;
+        }
+      }
+      const stored = await db.settings.get(testKey);
+      assert(errorThrown && !stored, 'Real Dexie transaction successfully rolls back and leaves no partial data on failure');
+    }
+  }
 }
 
 // Expose to window for console testing
@@ -1097,5 +1169,6 @@ export const testSuite = {
   runValidationSuite: TestSuiteService.runValidationSuite,
   runAllTests: TestSuiteService.runAllTests,
   runFullIntegrityTest: TestSuiteService.runFullIntegrityTest,
-  runAIAuditStressTest: TestSuiteService.runAIAuditStressTest
+  runAIAuditStressTest: TestSuiteService.runAIAuditStressTest,
+  runTransactionGuardVerificationTests: TestSuiteService.runTransactionGuardVerificationTests
 };
