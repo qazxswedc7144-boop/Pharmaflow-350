@@ -153,64 +153,63 @@ const PartnersModule: React.FC<PartnersModuleProps> = ({ onNavigate, subType, in
 
   return (
     <div className="p-4 md:p-8 space-y-8 bg-[#F8FAFA] min-h-full font-cairo" dir="rtl">
-      {/* Header Card Component */}
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 bg-white p-6 md:p-8 rounded-[32px] border border-slate-100 shadow-sm">
-        <div className="flex items-center gap-5">
-          <div className="w-16 h-16 bg-[#1E4D4D] text-white rounded-[22px] flex items-center justify-center shadow-xl shadow-emerald-900/10 shrink-0">
-            {activeTab === 'SUPPLIERS' ? <Truck size={30} /> : activeTab === 'PARTNERS' ? <Building2 size={30} /> : activeTab === 'ALL' ? <BookOpen size={30} /> : <Users size={30} />}
+      {/* Header Section */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 bg-[#1E4D4D] text-white rounded-[20px] flex items-center justify-center shadow-xl">
+            {activeTab === 'SUPPLIERS' ? <Truck size={28} /> : activeTab === 'PARTNERS' ? <Building2 size={28} /> : activeTab === 'ALL' ? <BookOpen size={28} /> : <Users size={28} />}
           </div>
           <div>
-            <h2 className="text-2xl md:text-3xl font-black text-[#1E4D4D] tracking-tight">{getHeaderTitle()}</h2>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">{getHeaderDescription()}</p>
+            <h2 className="text-2xl font-black text-[#1E4D4D] tracking-tight">{getHeaderTitle()}</h2>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest leading-none mt-1">{getHeaderDescription()}</p>
           </div>
         </div>
         
         <div className="flex flex-wrap items-center gap-3">
-          {/* Tabs / Navigation Grid Box */}
-          <div className="flex bg-[#F4F6F6] p-1.5 rounded-2xl border border-slate-100 flex-wrap gap-1">
+          <div className="flex bg-slate-50 p-1 rounded-2xl border border-slate-100 flex-wrap gap-1">
             <button 
               onClick={() => setActiveTab('SUPPLIERS')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all ${activeTab === 'SUPPLIERS' ? 'bg-[#1E4D4D] text-white shadow-md shadow-emerald-900/15' : 'text-slate-500 hover:text-[#1E4D4D]'}`}
+              className={`px-4 py-2 rounded-xl text-[11px] font-black transition-all ${activeTab === 'SUPPLIERS' ? 'bg-[#1E4D4D] text-white shadow-md' : 'text-slate-400 hover:text-[#1E4D4D]'}`}
             >
               الموردون
             </button>
             <button 
               onClick={() => setActiveTab('CUSTOMERS')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all ${activeTab === 'CUSTOMERS' ? 'bg-[#1E4D4D] text-white shadow-md shadow-emerald-900/15' : 'text-slate-500 hover:text-[#1E4D4D]'}`}
+              className={`px-4 py-2 rounded-xl text-[11px] font-black transition-all ${activeTab === 'CUSTOMERS' ? 'bg-[#1E4D4D] text-white shadow-md' : 'text-slate-400 hover:text-[#1E4D4D]'}`}
             >
               العملاء
             </button>
             <button 
               onClick={() => setActiveTab('PARTNERS')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all ${activeTab === 'PARTNERS' ? 'bg-[#1E4D4D] text-white shadow-md shadow-emerald-900/15' : 'text-slate-500 hover:text-[#1E4D4D]'}`}
+              className={`px-4 py-2 rounded-xl text-[11px] font-black transition-all ${activeTab === 'PARTNERS' ? 'bg-[#1E4D4D] text-white shadow-md' : 'text-slate-400 hover:text-[#1E4D4D]'}`}
             >
               الشركاء / الجهات المرتبطة
             </button>
             <button 
               onClick={() => setActiveTab('ALL')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all ${activeTab === 'ALL' ? 'bg-[#1E4D4D] text-white shadow-md shadow-emerald-900/15' : 'text-slate-500 hover:text-[#1E4D4D]'}`}
+              className={`px-4 py-2 rounded-xl text-[11px] font-black transition-all ${activeTab === 'ALL' ? 'bg-[#1E4D4D] text-white shadow-md' : 'text-slate-400 hover:text-[#1E4D4D]'}`}
             >
               دليل جهات الاتصال
             </button>
           </div>
           <button 
             onClick={() => onNavigate?.('dashboard')}
-            className="w-14 h-14 bg-[#F4F6F6] border border-slate-100 rounded-2xl flex items-center justify-center text-slate-500 hover:text-[#1E4D4D] hover:bg-slate-100 transition-all shadow-sm shrink-0"
+            className="w-12 h-12 bg-white border border-slate-100 rounded-2xl flex items-center justify-center text-slate-400 hover:text-[#1E4D4D] transition-all shadow-sm shrink-0"
             title="العودة للوحة التحكم"
           >
-            <ArrowRight size={22} />
+            <ArrowRight size={20} />
           </button>
         </div>
       </div>
 
-      {/* Search & Action Section */}
-      <div className="flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between">
-        <div className="relative flex-1 group max-w-2xl">
-          <Search className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-[#1E4D4D] transition-colors" size={20} />
+      {/* Toolbar */}
+      <div className="flex flex-col md:flex-row gap-4">
+        <div className="relative flex-1 group">
+          <Search className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-[#1E4D4D] transition-colors" size={20} />
           <input 
             type="text" 
-            placeholder={`البحث في قائمة ${getPartnerLabel()}ين بالاسم أو رقم الهاتف...`}
-            className="w-full h-14 bg-white border border-slate-100 rounded-2xl pr-14 pl-6 text-xs font-black text-slate-700 outline-none focus:border-[#1E4D4D] shadow-sm transition-all"
+            placeholder={`البحث في قائمة ${getPartnerLabel()}ين...`}
+            className="w-full h-14 bg-white border border-slate-100 rounded-2xl pr-14 pl-6 text-[11px] font-black outline-none focus:border-[#1E4D4D] shadow-sm transition-all"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -218,7 +217,7 @@ const PartnersModule: React.FC<PartnersModuleProps> = ({ onNavigate, subType, in
         
         <button 
           onClick={() => { setEditingPartner({}); setIsModalOpen(true); }}
-          className="h-14 px-8 bg-[#1E4D4D] text-white rounded-2xl flex items-center justify-center gap-3 text-xs font-black shadow-lg shadow-emerald-900/15 hover:bg-[#153838] hover:scale-[1.02] active:scale-95 transition-all shrink-0 w-auto"
+          className="h-14 px-8 bg-[#1E4D4D] text-white rounded-2xl flex items-center justify-center gap-3 text-[11px] font-black shadow-lg shadow-emerald-900/20 hover:scale-105 active:scale-95 transition-all"
         >
           <UserPlus size={18} />
           <span>إضافة {getPartnerLabel()} جديد</span>

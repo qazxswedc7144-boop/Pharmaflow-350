@@ -110,7 +110,7 @@ async function startServer() {
     }, 100);
   }
 
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const PORT = (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000) || 3000;
   console.log(`[BOOT] Server configured to listen on PORT: ${PORT} (env.PORT: ${process.env.PORT || 'not set'})`);
   
   // Clean up any stale processes in development if needed
@@ -442,6 +442,21 @@ async function startServer() {
       console.error("[REPLICATION] Failed to run subscriber:", subErr);
     });
   });
+
+  // Support direct Cloud Run custom PORT if configured and different from default 3000
+  const cloudRunPortRaw = process.env.PORT ? parseInt(process.env.PORT, 10) : null;
+  if (cloudRunPortRaw && cloudRunPortRaw !== PORT && !isNaN(cloudRunPortRaw)) {
+    try {
+      const crServer = app.listen(cloudRunPortRaw, "0.0.0.0", () => {
+        console.log(`[BOOT] Server also listening on Cloud Run port ${cloudRunPortRaw}`);
+      });
+      crServer.on("error", (errVal: any) => {
+        console.log(`[BOOT] Secondary port ${cloudRunPortRaw} notice: ${errVal?.message || errVal} (In preview environment, managed by reverse-proxy)`);
+      });
+    } catch (e: any) {
+      console.log(`[BOOT] Secondary port init note: ${e?.message || e}`);
+    }
+  }
 
   // Graceful shutdown handling for active listener
   const gracefulShutdown = (signal: string) => {
